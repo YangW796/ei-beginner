@@ -33,6 +33,7 @@ class ArmBase:
             "wrist_3_joint",
             "finger_joint"
         ]
+        self.mimicParentName = "finger_joint"
     
     # 关节信息解析 
     def parse_joint_info(self):
@@ -105,12 +106,12 @@ class ArmBase:
     def gripper_contact(self, force=100):
         left_index = self.joints['left_inner_finger_pad_joint'].id
         right_index = self.joints['right_inner_finger_pad_joint'].id
-        contact_left = p.getContactPoints(bodyA=self.robotID, linkIndexA=left_index)
-        contact_right = p.getContactPoints(bodyA=self.robotID, linkIndexA=right_index)
+        contact_left = p.getContactPoints(bodyA=self.robot_id, linkIndexA=left_index)
+        contact_right = p.getContactPoints(bodyA=self.robot_id, linkIndexA=right_index)
 
         # Check the force
-        left_force = p.getJointState(self.robotID, left_index)[2][:3]
-        right_force = p.getJointState(self.robotID, right_index)[2][:3]
+        left_force = p.getJointState(self.robot_id, left_index)[2][:3]
+        right_force = p.getJointState(self.robot_id, right_index)[2][:3]
         left_norm, right_norm = np.linalg.norm(left_force), np.linalg.norm(right_force)
         return left_norm > force or right_norm > force
     
@@ -126,7 +127,7 @@ class ArmBase:
 
     def close_gripper(self, step= 120,check_contact=True) -> bool:
         # Get initial gripper open position
-        initial_position = p.getJointState(self.robotID, self.joints[self.mimicParentName].id)[0]
+        initial_position = p.getJointState(self.robot_id, self.joints[self.mimicParentName].id)[0]
         initial_position = math.sin(0.715 - initial_position) * 0.1143 + 0.010
         for step_idx in range(1, step):
             current_target_open_length = initial_position - step_idx / step * initial_position

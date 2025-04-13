@@ -18,7 +18,7 @@ def demo():
     )
     camera = Camera((0, -0.5, 1.5), 0.1, 5, (320, 320), 40)
     robot = ArmBase("/home/wy/Document/eibeginner/model/pybullet_ur5_robotiq/urdf/ur5_robotiq_85.urdf")
-    env= GraspTaskEnv(ycb_models, camera,robot, vis=True)
+    env= GraspTaskEnv(ycb_models, camera,robot,obj_num=2, vis=True)
     p.resetDebugVisualizerCamera(2.0, -270., -60., (0., 0., 0.))
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1)  # Shadows on/off
     (rgb, depth, seg) = env.reset()
@@ -32,7 +32,7 @@ def demo():
         p.addUserDebugLine([x, y, 0], [x, y, z], [0, 1, 0])
         p.addUserDebugLine([x, y, z], [x, y, z+0.05], [1, 0, 0])
 
-        (rgb, depth, seg), reward, done, info = env.step((x, y, z), 1, 'grasp')
+        (rgb, depth, seg), reward, done, info = env.step((x, y, z), 1)
 
         print('Step %d, grasp at %.2f,%.2f,%.2f, reward %f, done %s, info %s' %
               (step_cnt, x, y, z, reward, done, info))

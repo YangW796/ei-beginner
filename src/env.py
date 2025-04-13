@@ -64,7 +64,7 @@ class GraspTaskEnv:
         self.robot.move_ee((x, y, z +GRASP_POINT_OFFSET_Z, orn),
                         custom_velocity=0.05, max_step=1000)
         item_in_gripper = self.robot.close_gripper(check_contact=True)    
-        self.move_ee((x, y, z + GRASP_POINT_OFFSET_Z + 0.1, orn), try_close_gripper=False,
+        self.robot.move_ee((x, y, z + GRASP_POINT_OFFSET_Z + 0.1, orn), try_close_gripper=False,
                         custom_velocity=0.05, max_step=1000)
         if item_in_gripper:
             print('Item in Gripper!')
