@@ -1,3 +1,4 @@
+
 import numpy as np
 import pybullet as p
 import os
@@ -7,7 +8,7 @@ from data import YCBModels
 from env import GraspTaskEnv
 from robot import ArmBase
 from util import Camera
-
+from task import task_step
 
 def demo():
     physicsClient = p.connect(p.GUI)
@@ -24,15 +25,13 @@ def demo():
     (rgb, depth, seg) = env.reset()
     step_cnt = 0
     while True:
-        #确定相机视野中的最近物体最小深度值的像素位置
         h_, w_ = np.unravel_index(depth.argmin(), depth.shape)
-        #还原xyz
         x, y, z = camera.rgbd_2_world(w_, h_, depth[h_, w_])
 
         p.addUserDebugLine([x, y, 0], [x, y, z], [0, 1, 0])
         p.addUserDebugLine([x, y, z], [x, y, z+0.05], [1, 0, 0])
 
-        (rgb, depth, seg), reward, done, info = env.step((x, y, z), 1)
+        (rgb, depth, seg), reward, done, info = task_step(env,(x, y, z), 1)
 
         print('Step %d, grasp at %.2f,%.2f,%.2f, reward %f, done %s, info %s' %
               (step_cnt, x, y, z, reward, done, info))
