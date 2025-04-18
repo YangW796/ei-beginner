@@ -7,7 +7,7 @@ import pybullet as p
 
 def step_simulation():
     p.stepSimulation()
-    #time.sleep( 1 / 240.)  
+    time.sleep( 1 / 500.)  
 
 
 class ArmBase:

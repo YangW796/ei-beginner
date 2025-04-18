@@ -36,7 +36,7 @@ class Camera_:
         return rgb, depth, seg
 
 class Camera:
-    # 假设这是您的相机类实现
+    
     def __init__(self, position, near, far, resolution, fov):
         self.position = position
         self.near = near

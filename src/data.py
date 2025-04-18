@@ -48,7 +48,7 @@ class YCBModels(Models):
                 basePosition=(np.clip(np.random.normal(0, 0.005), -0.2, 0.2),np.clip(np.random.normal(0, 0.005) - 0.5, -0.7, -0.3),OBJECT_INIT_HEIGHT),# useMaximalCoordinates=True,
                 baseOrientation=p.getQuaternionFromEuler((np.random.uniform(-np.pi, np.pi),np.random.uniform(0, np.pi),np.random.uniform(-np.pi, np.pi)))
             )
-            # 可以看看去掉某些参数后有什么变化
+            
             p.changeDynamics(obj_handle, -1, lateralFriction=1, rollingFriction=0.01, spinningFriction=0.001,restitution=0.01)
             self.obj_ids.append(obj_handle)
             self.wait_until_still()
