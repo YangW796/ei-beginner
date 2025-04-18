@@ -5,7 +5,7 @@ import pybullet as p
 OBJECT_INIT_HEIGHT = 1.05
 def step_simulation():
     p.stepSimulation()
-    time.sleep( 1 / 240.)  
+   #time.sleep( 1 / 240.)  
 
 class Models:
     def load_objects(self):
@@ -25,6 +25,9 @@ class YCBModels(Models):
         self.obj_ids=[]
     
     def load_objects(self,num):
+        self.visual_shape_ids=[]
+        self.collision_shape_ids=[]
+        self.obj_ids=[]
         shift = [0, 0, 0]
         mesh_scale = [1, 1, 1]
         assert(num<=len(self.files))
@@ -48,8 +51,8 @@ class YCBModels(Models):
             # 可以看看去掉某些参数后有什么变化
             p.changeDynamics(obj_handle, -1, lateralFriction=1, rollingFriction=0.01, spinningFriction=0.001,restitution=0.01)
             self.obj_ids.append(obj_handle)
-            
             self.wait_until_still()
+        return self.obj_ids   
             
     def is_still(self,handle):
         still_eps = 1e-3

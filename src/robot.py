@@ -7,33 +7,34 @@ import pybullet as p
 
 def step_simulation():
     p.stepSimulation()
-    time.sleep( 1 / 240.)  
+    #time.sleep( 1 / 240.)  
 
 
 class ArmBase:
     def __init__(self,path):
-        self.robot_id = p.loadURDF(
-            path,
-            [0, 0, 0.0],
-            p.getQuaternionFromEuler([0, 0, 0]),useFixedBase=True,
-            flags=p.URDF_USE_INERTIA_FROM_FILE
-        )
+        self.path=path
+        # self.robot_id = p.loadURDF(
+        #     path,
+        #     [0, 0, 0.0],
+        #     p.getQuaternionFromEuler([0, 0, 0]),useFixedBase=True,
+        #     flags=p.URDF_USE_INERTIA_FROM_FILE
+        # )
 
-        self.joints = AttrDict()
-        self.parse_joint_info()
-        self.eefID = 7
-        # Setup some Limit
-        self.gripper_open_limit = (0.0, 0.085)
-        self.ee_position_limit = ((-0.224, 0.224),(-0.724, -0.276),(1.0, 1.3))
-        self.controlJoints = [
-            "shoulder_pan_joint","shoulder_lift_joint",
-            "elbow_joint", 
-            "wrist_1_joint",
-            "wrist_2_joint", 
-            "wrist_3_joint",
-            "finger_joint"
-        ]
-        self.mimicParentName = "finger_joint"
+        # self.joints = AttrDict()
+        # self.parse_joint_info()
+        # self.eefID = 7
+        # # Setup some Limit
+        # self.gripper_open_limit = (0.0, 0.085)
+        # self.ee_position_limit = ((-0.224, 0.224),(-0.724, -0.276),(1.0, 1.3))
+        # self.controlJoints = [
+        #     "shoulder_pan_joint","shoulder_lift_joint",
+        #     "elbow_joint", 
+        #     "wrist_1_joint",
+        #     "wrist_2_joint", 
+        #     "wrist_3_joint",
+        #     "finger_joint"
+        # ]
+        # self.mimicParentName = "finger_joint"
     
     # 关节信息解析 
     def parse_joint_info(self):
@@ -192,6 +193,28 @@ class ArmBase:
     
     ### 重置
     def reset_robot(self):
+        self.robot_id = p.loadURDF(
+            self.path,
+            [0, 0, 0.0],
+            p.getQuaternionFromEuler([0, 0, 0]),useFixedBase=True,
+            flags=p.URDF_USE_INERTIA_FROM_FILE
+        )
+
+        self.joints = AttrDict()
+        self.parse_joint_info()
+        self.eefID = 7
+        # Setup some Limit
+        self.gripper_open_limit = (0.0, 0.085)
+        self.ee_position_limit = ((-0.224, 0.224),(-0.724, -0.276),(1.0, 1.3))
+        self.controlJoints = [
+            "shoulder_pan_joint","shoulder_lift_joint",
+            "elbow_joint", 
+            "wrist_1_joint",
+            "wrist_2_joint", 
+            "wrist_3_joint",
+            "finger_joint"
+        ]
+        self.mimicParentName = "finger_joint"
         user_parameters = (-1.5690622952052096, -1.5446774605904932, 1.343946009733127, -1.3708613585093699,-1.5707970583733368, 0.0009377758247187636, 0.085)
         for _ in range(100):
             for i, name in enumerate(self.controlJoints):
