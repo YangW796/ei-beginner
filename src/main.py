@@ -5,11 +5,9 @@ import os
 
 import pybullet_data
 from data import YCBModels
-from env import GraspTaskEnv
 from robot import ArmBase
 from env import CustomCNN, UR5GraspingEnv
 from util import Camera
-from task import task_step
 import numpy as np
 import pybullet as p
 import os
@@ -44,11 +42,15 @@ def train():
     env = VecNormalize(env, norm_obs=True, norm_reward=True)
     
     # 策略网络配置
+    # policy_kwargs = dict(
+    #     features_extractor_class=CustomCNN,
+    #     features_extractor_kwargs=dict(features_dim=256),
+    #     net_arch=dict(pi=[128, 128], vf=[128, 128])
+    # )
     policy_kwargs = dict(
-        features_extractor_class=CustomCNN,
-        features_extractor_kwargs=dict(features_dim=256),
-        net_arch=[dict(pi=[128, 128], vf=[128, 128])]
+    net_arch=[64, 64, 64],  # 3个隐藏层，每层64个神经元
     )
+
     
     model = PPO(
         "MultiInputPolicy",
@@ -56,8 +58,8 @@ def train():
         policy_kwargs=policy_kwargs,
         verbose=1,
         learning_rate=3e-4,  # 可考虑线性衰减
-        n_steps=2048,        # 每次更新前收集的步数
-        batch_size=256,       # 经验回放缓冲区大小
+        n_steps=200,        # 每次更新前收集的步数
+        batch_size=100,       # 经验回放缓冲区大小
         n_epochs=5,          # 每次更新的epoch数
         gamma=0.99,          # 折扣因子(长期回报)
         gae_lambda=0.95,     # GAE参数(权衡偏差方差)
@@ -72,10 +74,9 @@ def train():
         env,
         best_model_save_path="./logs/",
         log_path="./logs/",
-        eval_freq=10,      # 每10000步评估一次
+        eval_freq=400,      # 每10000步评估一次
         deterministic=True,
-        render=False,
-        n_eval_episodes=5    # 每次评估5个episode
+        render=False   # 每次评估5个episode
     )
 
     # 训练配置

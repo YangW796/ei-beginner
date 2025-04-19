@@ -2,7 +2,7 @@ import glob
 import time
 import numpy as np
 import pybullet as p
-OBJECT_INIT_HEIGHT = 1.05
+OBJECT_INIT_HEIGHT = 1.00
 def step_simulation():
     p.stepSimulation()
    #time.sleep( 1 / 240.)  

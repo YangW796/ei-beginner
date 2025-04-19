@@ -44,7 +44,8 @@ class UR5GraspingEnv(gym.Env):
         self.observation_space = spaces.Dict({
             'depth': spaces.Box(low=0, high=1, shape=camera.resolution, dtype=np.float32),
             'joint_positions': spaces.Box(low=-np.pi, high=np.pi, shape=(6,), dtype=np.float32),
-            'gripper_state': spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
+            'gripper_state': spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            'object_position': spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32)  # 物体坐标（x, y, z）
         })
         
         # 初始化物理环境
@@ -65,7 +66,7 @@ class UR5GraspingEnv(gym.Env):
         self.planeID = p.loadURDF("plane.urdf")
         self.tableID = p.loadURDF(
             "/home/wy/Document/eibeginner/model/pybullet_ur5_robotiq/urdf/objects/table.urdf",
-            [0.0, -0.5, 0.8],
+            [0, -0.5, 0.8],
             p.getQuaternionFromEuler([0, 0, 0]),
             useFixedBase=True
         )
@@ -81,11 +82,12 @@ class UR5GraspingEnv(gym.Env):
         
     def _get_observation(self):
         # 获取深度图像
-        
         _, depth, _ = self.camera.shot()
         depth = np.array(depth, dtype=np.float32)
         depth = (depth - self.camera.near) / (self.camera.far - self.camera.near)
-        
+        h_, w_ = np.unravel_index(depth.argmin(), depth.shape)
+        x, y, z =self.camera.rgbd_2_world(w_, h_, depth[h_, w_])
+        self.obj_pos=np.array([x,y,z])
         # 获取机器人状态
         joint_states = p.getJointStates(self.robot.robot_id, range(6))  # 前6个关节
         joint_positions = np.array([state[0] for state in joint_states], dtype=np.float32)
@@ -96,56 +98,54 @@ class UR5GraspingEnv(gym.Env):
         return {
             'depth': depth,
             'joint_positions': joint_positions,
-            'gripper_state': gripper_state
+            'gripper_state': gripper_state,
+            'object_position':np.array([x,y,z])
         }
     
     def reset(self):
-        p.resetSimulation()
-        p.setGravity(0, 0, -10)
-        self._init_physics()
-        # 加载物体
-        self.objects = self._load_objects()
-        self.robot.reset_robot()
+        #p.resetSimulation()
+        # p.setGravity(0, 0, -10)
+        # self._init_physics()
+        # # 加载物体
+        # self.objects = self._load_objects()
+        #self.robot.reset_robot()
         p.resetDebugVisualizerCamera(2.0, -270, -60, (0, 0, 0))
         p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1)
         return self._get_observation()
     
     def step(self, action):
+        x,y,z, gripper_action = action
         
-        x, y, z, gripper_action = action
-        print(f"{x},{y},{z}")
         current_pos, current_orn = p.getLinkState(self.robot.robot_id, self.robot.eefID)[:2]
         target_pos = [x, y, z]
-        
-
-        success,(final_xyz,_) = self.robot.move_ee([target_pos[0], target_pos[1],  target_pos[2], current_orn],custom_velocity=0.1,max_step=1000)
+        success,(final_xyz,_) = self.robot.move_ee([target_pos[0], target_pos[1],  target_pos[2], current_orn],custom_velocity=0.1,max_step=1)
         #self.robot.open_gripper()
         # self.robot.move_ee((target_pos[0],  target_pos[1], GRASP_POINT_OFFSET_Z, current_orn), try_close_gripper=False,custom_velocity=0.05)
         # item_in_gripper =self.robot.close_gripper()
         # self.robot.move_ee((target_pos[0],  target_pos[1],GRASP_POINT_OFFSET_Z + 0.1, current_orn), try_close_gripper=False,custom_velocity=0.05)
         # self.robot.move_away_arm()
         # self.robot.open_gripper()
-        # self.camera.position=final_xyz
         # 获取新状态
-       
+        #self.camera.position=(final_xyz[0],final_xyz[1],final_xyz[2]-0.05)
         obs = self._get_observation()
-    
+        position, orientation = p.getBasePositionAndOrientation(self.models[0][1])
+        print(f"{self.obj_pos},{position}")
         # 计算奖励
-        reward = self._compute_reward(final_xyz,target_pos,current_pos)
+        reward = self._compute_reward( position,target_pos)
         
         # 检查是否完成
         done = self._check_success()
         
         # 额外信息
         info = {'success': self._check_success()}
-        # p.stepSimulation()
-        # time.sleep(1.0/240.0)
+        p.stepSimulation()
+        time.sleep(1.0/500.0)
         return obs, reward, done, info
-    
-    def _compute_reward(self,final_xyz,target_pos,current_pos):
+
+    def _compute_reward(self,final_xyz,target_pos):
         reward = 0
         dist_to_target = np.linalg.norm(np.array(final_xyz) - np.array(target_pos))
-        reward +=1- dist_to_target # 距离越近，奖励越高
+        reward +=0.5- dist_to_target # 距离越近，奖励越高
         
         # 1. 检查是否接触到物体
         contacts = p.getContactPoints(bodyA=self.robot.robot_id)
