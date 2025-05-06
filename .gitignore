@@ -1,5 +1,5 @@
 model
-src/__pycache__
+**/__pycache__/
 logs
 ref
 log
@@ -7,3 +7,4 @@ install
 build
 c2p_src_ref
 video
+mujoco_src/UR5+gripper
