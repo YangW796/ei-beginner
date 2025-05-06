@@ -1,3 +1,9 @@
 model
 src/__pycache__
 logs
+ref
+log
+install 
+build
+c2p_src_ref
+video
