@@ -2,22 +2,23 @@
 import time
 import mujoco
 import numpy as np
-from env import MujocoEnvDemo
-
+from env import GraspEnv
 
 if __name__ == "__main__":
-    env = MujocoEnvDemo("./mujoco_src/UR5+gripper/UR5gripper_2_finger.xml")  # 确保当前路径下有 ant.xml
-    obs = env.reset()
     
-    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
-        for _ in range(1000):
-            if not viewer.is_running():
-                break
-            action = 0.1 * np.random.randn(env.model.nu)
-            obs, reward, done, _ = env.step(action)
-            print(f"Reward: {reward:.2f}")
-            viewer.sync()
-            time.sleep(0.01)
+    env = GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml") 
+    # env.robot._move_group_to_joint_target("Arm")
+    # obs = env.reset()
+    
+    # with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
+    #     for _ in range(1000):
+    #         if not viewer.is_running():
+    #             break
+    #         action = 0.1 * np.random.randn(env.model.nu)
+    #         obs, reward, done, _ = env.step(action)
+    #         print(f"Reward: {reward:.2f}")
+    #         viewer.sync()
+    #         time.sleep(0.01)
 
 
 # N_EPISODES = 100
