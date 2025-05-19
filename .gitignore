@@ -8,3 +8,4 @@ build
 c2p_src_ref
 video
 mujoco_src/UR5+gripper
+MJDATA.TXT

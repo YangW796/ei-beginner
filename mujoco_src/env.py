@@ -1,105 +1,118 @@
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+import gym
 import mujoco
-import mujoco.viewer
 import numpy as np
 from termcolor import colored
 from gym import  spaces
+from camera import Camera
 from robot import Robot
 from mujoco import viewer
 IMAGE_WIDTH=200
 IMAGE_HEIGHT=200
 
 
-class GraspEnv:
+class GraspEnv(gym.Env):
     def __init__(self, model_path):
         # 加载模型和数据
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
-        #viewer.launch(self.model,self.data)
-
-        self.robot = Robot(model=self.model,data=self.data)
-        #self.robot.display_current_values()
+        self.viewer=viewer.launch_passive(self.model, self.data)
         
+        self.robot = Robot(model=self.model,data=self.data,viewer=self.viewer)
+        #self.camera= Camera(self.model,self.data,width=IMAGE_WIDTH,height=IMAGE_HEIGHT, camera_name="top_down")
         
-        self.current_observation={
-        "rgb":np.zeros((IMAGE_WIDTH, IMAGE_HEIGHT, 3)),
-        "depth":np.zeros((IMAGE_WIDTH, IMAGE_HEIGHT))
-        }
-        self.step_called=0
+        self.observation_space = spaces.Dict(OrderedDict([
+        #    ("rgb",spaces.Box(low=0, high=255, shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)),
+        #    ( "depth",spaces.Box(low=0.0, high=5.0, shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.float32)),
+            ("proprioception",spaces.Dict(OrderedDict([
+                ("joint_pos",spaces.Box(low=-np.pi,high=np.pi,shape=(6,))),
+                ("eef_pos", spaces.Box(low=-2, high=2, shape=(3,))),
+                # ("gripper", spaces.Box(low=0, high=1, shape=(1,))),
+                ("target_rel", spaces.Box(low=-2, high=2, shape=(3,))),
+                # ("contact", spaces.Box(low=0, high=10, shape=(6,)))
+            ])))
+        ]))
+        self.action_space = spaces.Dict({
+            "motion":spaces.Box(low=-1,high=1,shape=(6,),dtype=np.float32)
+        })
+        #训练参数
+        self.current_step=0
+        self.max_episode_steps=3000
+        self.reset()
         
-
 
     def reset(self):
         mujoco.mj_resetData(self.model, self.data)
-        return self._get_obs()
+        self.current_step=0
     
-    def _is_done(self):
-        return False
+    def _apply_action(self,action):
+        #self.robot.move_group_to_joint_target_in_one_mjstep(group="Arm",target=action)
+        self.robot._move_group_to_joint_target(group="Arm",target=action)
     
-
+    
     def step(self, action):
-        self.current_observation = self._get_obs()
-        # 计算位置
-        x = action[0] % IMAGE_WIDTH
-        y = action[0] // IMAGE_WIDTH
-        rotation = action[1]
-        depth = self.current_observation["depth"][y][x]
-        coordinates = self.controller.pixel_2_world(
-                pixel_x=x, pixel_y=y, depth=depth, height=IMAGE_HEIGHT, width=IMAGE_WIDTH
-        )
+        self._apply_action(action)
+        obs = self._get_obs()
+        reward=0
+        success=False
+        # reward,success=self._compute_reward(obs,action)
+        #done = success or (self.current_step >= self.max_episode_steps)
+        done=success
+        self.current_step+=1
         
-        #  移动+是否完成
-        done=self.robot.move_and_grasp(coordinates)
-         
-        # 计算奖励
-        reward=self._compute_reward(coordinates,rotation)
-        # 获取当前obs
-        self.current_observation = self._get_obs()
-        self.step_called+=1
-        
-        
-        
-
-        return self.current_observation, reward, done, {}
+        return obs,reward,done,{"is_success": success}
     
-    def _set_action_space(self):
-        if self.action_space_type == "discrete":
-            size = IMAGE_WIDTH * IMAGE_HEIGHT
-            self.action_space = spaces.Discrete(size)
-        elif self.action_space_type == "multidiscrete":
-            self.action_space = spaces.MultiDiscrete(
-                [IMAGE_HEIGHT * IMAGE_WIDTH, len(self.rotations)]
-            )
-
-        return self.action_space
+    def _get_target_relative_pos(self):
+        # 计算目标相对位置
+        return np.zeros(3)
 
     def _get_obs(self):
-        # rgb, depth = self.controller.get_image_data(
-        #     width=self.IMAGE_WIDTH, height=self.IMAGE_HEIGHT, show=show
-        # )
-        depth = self.controller.depth_2_meters(depth)
-        observation = defaultdict()
-        observation["rgb"] = rgb
-        observation["depth"] = depth
+        #rgb, depth = self.camera.get_image_data(show=True)
+        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        proprio = {
+            "joint_pos": self.data.qpos[:6].copy(),
+            "eef_pos": self.data.xpos[eef_id].copy(),
+            # "gripper": self.data.qpos[6].copy(),
+            "target_rel": self._get_target_relative_pos(),
+            #"contact": self.data.sensor_data[:6].copy()
+            
+         }
+        return OrderedDict([
+            # ("rgb", rgb),
+            # ("depth", depth),
+            ("proprioception", proprio)
+        ])
 
-        return observation
+    def _compute_reward(self,obs,action):
+        dist = np.linalg.norm(obs["proprioception"]["target_rel"])
+        dist_reward = 1.0 / (1.0 + 10.0 * dist**2)
+        # 接触奖励
+        contact_reward = 0
+        #0.5 if np.any(obs["proprioception"]["contact"] > 0.1) else 0
+        # 抓取成功判断
+        success = False
+        success_reward = 0
+        # success = self._check_grasp_success(obs)
+        # success_reward = 10.0 if success else 0
 
-    def _compute_reward(self, coordinates,rotation):
-        if coordinates[2] < 0.8 or coordinates[1] > -0.3:
-            reward=0
-        else:
-            reward = 1 #if grasped_something else 0
-            # if grasped_something != "demo":
-            #     print(
-            #         colored(
-            #             "Reward received during step: {}".format(reward),
-            #             color="yellow",
-            #             attrs=["bold"],
-            #         )
-            #     )
+        # 动作平滑惩罚
+        action_penalty = 0.01 * np.sum(np.square(action["motion"]))
+        
+        # 总奖励
+        total_reward = (
+            0.3 * dist_reward +
+            0.2 * contact_reward +
+            success_reward -
+            action_penalty
+        )
+        
+        return total_reward, success
     
-        return reward  # 比如奖励为 X 方向移动量
-
-
-    def render(self):
-        mujoco.viewer.launch_passive(self.model, self.data)
+    def _check_grasp_success(self, obs):
+        return (
+            # obs["proprioception"]["gripper"] < 0.05   # 夹爪闭合
+            # and 
+            np.linalg.norm(obs["proprioception"]["target_rel"]) < 0.03  # 目标接近
+            and obs["proprioception"]["eef_pos"][2] > 0.15  # 已提起
+            #and  np.mean(obs["proprioception"]["contact"]) > 0.5  # 持续接触
+        )
