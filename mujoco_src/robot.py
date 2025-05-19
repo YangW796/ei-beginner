@@ -27,7 +27,7 @@ class Robot:
         self.reset_pos()
     
     def reset(self):
-        pass
+        self.reset_pos()
         
     def _init_pid_list(self):
         """

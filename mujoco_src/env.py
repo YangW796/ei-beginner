@@ -24,17 +24,18 @@ class GraspEnv(gym.Env):
         self.observation_space = spaces.Dict(OrderedDict([
         #    ("rgb",spaces.Box(low=0, high=255, shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)),
         #    ( "depth",spaces.Box(low=0.0, high=5.0, shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.float32)),
-            ("proprioception",spaces.Dict(OrderedDict([
-                ("joint_pos",spaces.Box(low=-np.pi,high=np.pi,shape=(6,))),
-                ("eef_pos", spaces.Box(low=-2, high=2, shape=(3,))),
-                # ("gripper", spaces.Box(low=0, high=1, shape=(1,))),
-                ("target_rel", spaces.Box(low=-2, high=2, shape=(3,))),
-                # ("contact", spaces.Box(low=0, high=10, shape=(6,)))
-            ])))
+         
+        ("joint_pos",spaces.Box(low=-np.pi,high=np.pi,shape=(6,))),
+        ("eef_pos", spaces.Box(low=-2, high=2, shape=(3,))),
+        # ("gripper", spaces.Box(low=0, high=1, shape=(1,))),
+        ("target_rel", spaces.Box(low=-2, high=2, shape=(3,))),
+        # ("contact", spaces.Box(low=0, high=10, shape=(6,)))
+        
         ]))
-        self.action_space = spaces.Dict({
-            "motion":spaces.Box(low=-1,high=1,shape=(6,),dtype=np.float32)
-        })
+        # self.action_space = spaces.Dict(OrderedDict([
+            # ("motion",spaces.Box(low=-1,high=1,shape=(6,),dtype=np.float32)),
+        # ]))
+        self.action_space =spaces.Box(low=-1,high=1,shape=(6,),dtype=np.float32)
         #训练参数
         self.current_step=0
         self.max_episode_steps=3000
@@ -42,8 +43,10 @@ class GraspEnv(gym.Env):
         
 
     def reset(self):
+        self.robot.reset()
         mujoco.mj_resetData(self.model, self.data)
         self.current_step=0
+        return self._get_obs()
     
     def _apply_action(self,action):
         #self.robot.move_group_to_joint_target_in_one_mjstep(group="Arm",target=action)
@@ -64,27 +67,27 @@ class GraspEnv(gym.Env):
     
     def _get_target_relative_pos(self):
         # 计算目标相对位置
-        return np.zeros(3)
+        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
+        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        
+        return self.data.xpos[eef_id].copy()-self.data.xpos[object_id].copy()
+        
 
     def _get_obs(self):
         #rgb, depth = self.camera.get_image_data(show=True)
         eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
-        proprio = {
+        proprio = OrderedDict({
             "joint_pos": self.data.qpos[:6].copy(),
             "eef_pos": self.data.xpos[eef_id].copy(),
             # "gripper": self.data.qpos[6].copy(),
             "target_rel": self._get_target_relative_pos(),
             #"contact": self.data.sensor_data[:6].copy()
             
-         }
-        return OrderedDict([
-            # ("rgb", rgb),
-            # ("depth", depth),
-            ("proprioception", proprio)
-        ])
+         })
+        return proprio
 
     def _compute_reward(self,obs,action):
-        dist = np.linalg.norm(obs["proprioception"]["target_rel"])
+        dist = np.linalg.norm(obs["target_rel"])
         dist_reward = 1.0 / (1.0 + 10.0 * dist**2)
         # 接触奖励
         contact_reward = 0
@@ -112,7 +115,7 @@ class GraspEnv(gym.Env):
         return (
             # obs["proprioception"]["gripper"] < 0.05   # 夹爪闭合
             # and 
-            np.linalg.norm(obs["proprioception"]["target_rel"]) < 0.03  # 目标接近
-            and obs["proprioception"]["eef_pos"][2] > 0.15  # 已提起
+            np.linalg.norm(obs["target_rel"]) < 0.03  # 目标接近
+            and obs["eef_pos"][2] > 0.15  # 已提起
             #and  np.mean(obs["proprioception"]["contact"]) > 0.5  # 持续接触
         )
