@@ -1,49 +1,39 @@
 from collections import defaultdict
 import copy
-import math
 import time
-from ikpy.chain import Chain
 import mujoco
 import numpy as np
-from termcolor import colored
-from simple_pid import PID 
-from mujoco import viewer
-TABLE_HEIGHT = 0.91
+from simple_pid import PID
+from ikpy.chain import Chain
 class Robot:
     def __init__(self,path=None,model=None,data=None,viewer=None):
         self.model= model
         self.data = data
         self.viewer=viewer
-        #初始化pid控制列表
         self._init_pid_list()
-        
-        #定义手臂夹爪idx组
+        # 组序号
         self.groups = defaultdict(list)
         self.groups["Arm"] = list(range(5))
         self.groups["Gripper"]=[6]
-        #实际joint_ids
         self.actuated_joint_ids = np.array([i[2] for i in self.actuators]).astype(int)
         self.ee_chain = Chain.from_urdf_file("./model/UR5+gripper/ur5_gripper.urdf")
-        self.reset_pos()
+        self.reset()
+        
     
     def reset(self):
-        self.reset_pos()
-        
+        self.data.qpos[:7] = np.array([-np.pi/2, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0, 0.02])
+        mujoco.mj_forward(self.model, self.data)
+        self.viewer.sync()
+    
     def _init_pid_list(self):
-        """
-        Initialize per-joint PID controllers and metadata using updated mujoco API.
-        """
-        print(f"self.model.nu:{self.model.nu}")
         self.pid_list = []
-        # PID parameters
         sample_time = 0.0001
         p_scale = 3
         i_scale = 0.0
         i_gripper = 0
         d_scale = 0.1
 
-        # 定义每个关节的 PID 参数（你可以根据实际 URDF 配置来调整数量）
-               # 定义每个关节的 PID 参数和目标角度（自然姿态）
+        # 定义每个关节的 PID 参数
         pid_params = [
             (7 * p_scale, 0.0 * i_scale, 1.1 * d_scale, 0.0, (-2, 2)),     # Shoulder Pan: 0 rad
             (10 * p_scale, 0.0 * i_scale, 1.0 * d_scale, -np.pi/2, (-2, 2)), # Shoulder Lift: -π/2
@@ -53,8 +43,6 @@ class Robot:
             (5 * p_scale, 0.0 * i_scale, 0.1 * d_scale, 0.0, (-1, 1)),       # Wrist3: 0
             (2.5 * p_scale, i_gripper, 0.0 * d_scale, 0.0, (-1, 1)),         # Gripper
         ]
-
-
         for kp, ki, kd, sp, out_lim in pid_params:
             self.pid_list.append(
                 PID(kp, ki, kd, setpoint=sp, output_limits=out_lim, sample_time=sample_time)
@@ -73,32 +61,17 @@ class Robot:
             joint_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_id)
             controller = self.pid_list[i]
             self.actuators.append([i, actuator_name, joint_id, joint_name, controller])
+    
+    
+    def open_gripper(self):
+        return self._move_group_to_joint_target(
+            group="Gripper", target=[0.4], max_steps=1000, tolerance=0.05
+        )
+    
+    def close_gripper(self):
+        return self._move_group_to_joint_target(
+            group="Gripper", target=[-0.4], tolerance=0.01) 
         
-    def reset_pos(self):
-        #self.model.body_mocapid[self.target_mocap_id] = -1
-        initial_joint_angles = [0,-np.pi/2,np.pi/2,-np.pi/2,-np.pi/2,0,0]
-        move_seq=[6,5,4,1,2,3,0]
-        for j in range(self.model.nu):
-            self.actuators[j][4].setpoint =initial_joint_angles[j]
-        reached_target = False
-        tolerance=0.01
-        deltas = np.zeros(self.model.nu)
-        
-        while not reached_target:
-            current_joint_values = self.data.qpos[self.actuated_joint_ids]
-            for j in move_seq:
-                self.data.ctrl[j] = self.actuators[j][4](current_joint_values[j])
-                mujoco.mj_step(self.model, self.data)
-                self.viewer.sync() 
-                
-            for i in move_seq:
-                deltas[i] = abs(initial_joint_angles[i]- current_joint_values[i])
-            
-            if max(deltas) < tolerance:
-                reached_target = True
-        
-        print("init_pos finished")
-
     def _move_group_to_joint_target(
         self,
         group,
@@ -147,79 +120,29 @@ class Robot:
             
             mujoco.mj_step(self.model, self.data)
             self.viewer.sync()  
+            # self.stay(1000)
             
-            steps+=1
-            
+            steps+=1   
+        self.stay(1000000)
         return reached_target,max(deltas)
     
-    def move_group_to_joint_target_in_one_mjstep(
-        self,
-        group,
-        target=None,
-        tolerance=0.05
-    ):
-        idxs = self.groups[group]
-        #初始化
-        steps = 1
-        reached_target = False
-        deltas = np.zeros(self.model.nu)
-        
-        #设置 PID 控制器的 setpoint 
-        for i, v in enumerate(idxs):
-            self.current_target_joint_values[v] = target[i]
-            
-        for j in range(self.model.nu):
-            self.actuators[j][4].setpoint =self.current_target_joint_values[j]
-        
-        #执行循环
-        while not reached_target:
-            current_joint_values = self.data.qpos[self.actuated_joint_ids]
-            # 控制所有 motor
-            for j in range(self.model.nu):
-                self.data.ctrl[j] = self.actuators[j][4](current_joint_values[j])
-            
-            for i in idxs:
-                deltas[i] = abs(self.current_target_joint_values[i] - current_joint_values[i])
-            
-            if max(deltas) < tolerance:
-                print(f"\033[1;32mJoint values for group {group} within requested tolerance! ({steps} steps)\033[0m")
-                reached_target = True
-            
-        return reached_target,max(deltas)
-            
-    def open_gripper(self):
-        return self._move_group_to_joint_target(
-            group="Gripper", target=[0.4], max_steps=1000, tolerance=0.05
-        )
-    
-    def close_gripper(self):
-        return self._move_group_to_joint_target(
-            group="Gripper", target=[-0.4], tolerance=0.01) 
-    
-
-
     def _ik(self, ee_position):
-        # Save current target
-        self.current_carthesian_target = ee_position.copy()
 
         # Convert world target position to base frame
         base_pos = self.data.xpos[self.model.body('base_link').id]
         ee_position_base = ee_position - base_pos
-        print(f"ee_pos:{ ee_position_base}")
         # Add offset to transform ee_link → gripper center
         gripper_center_position = ee_position_base + np.array([0, -0.005, 0.16])
-        print(f"gripper_center_position:{ gripper_center_position}")
-        # Solve IK using ikpy
-        print(gripper_center_position)
+    
         joint_angles = self.ee_chain.inverse_kinematics(
             gripper_center_position,
-            [0, 0, -1],
-            orientation_mode="X",
-        )
-
+            target_orientation=[0,0,-1], 
+            orientation_mode="X")
+        print(joint_angles)
         # Check accuracy using forward kinematics
         fk_pos = self.ee_chain.forward_kinematics(joint_angles)[:3, 3]
         prediction = fk_pos + base_pos - np.array([0, -0.005, 0.16])
+        print(prediction)
         error = np.linalg.norm(prediction - ee_position)
 
         joint_angles = joint_angles[1:-2]  # Remove fixed/base links
@@ -230,18 +153,13 @@ class Robot:
             print("IK error too high:", error)
             
         return joint_angles
-    
-    
+
+
     def move_ee(self,ee_position):
         joint_angles = self._ik(ee_position)
+        print(joint_angles)
         return self._move_group_to_joint_target(group="Arm", target=joint_angles)
-        
-        
-        
     
-    def rotate_wrist_3_joint_to_value(self, degrees):
-        pass
-        
     def stay(self,duration):
         starting_time = time.time()
         elapsed = 0
@@ -278,6 +196,6 @@ class Robot:
         self.stay(100)
         return result_grasp, delta
         
-        # Move back to zero rotation
-        # result_rotate_back = self.rotate_wrist_3_joint_to_value(0)
+        
+        
         
