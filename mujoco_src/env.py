@@ -18,36 +18,48 @@ class GraspEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
         self.viewer = viewer.launch_passive(self.model, self.data)
         self.renderer = mujoco.Renderer(self.model, width=IMAGE_WIDTH, height=IMAGE_HEIGHT)
-        self.robot = Robot(model=self.model, data=self.data, viewer=self.viewer)
-        # self.camera = Camera(self.model, self.data, width=IMAGE_WIDTH, height=IMAGE_HEIGHT, camera_name="top_down")
+        for _ in range(1000):
+            mujoco.mj_step(self.model, self.data)
+            self.viewer.sync()
         
+        self.robot = Robot(model=self.model, data=self.data, viewer=self.viewer)
+        self.camera = Camera(self.model, self.data, width=IMAGE_WIDTH, height=IMAGE_HEIGHT, camera_name="top_down")
+        
+         
+        # low = np.array([-np.pi, -np.pi, 0, -np.pi, -np.pi, -np.pi], dtype=np.float32)
+        # high = np.array([np.pi, 0, np.pi, np.pi, np.pi, np.pi], dtype=np.float32)
+        self.real_action_low = np.array([-0.15, -0.75, 1.3 ])
+        self.real_action_high = np.array([0.15, -0.45,0.95])
+        # self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Dict(OrderedDict([
-            # ("rgb", spaces.Box(low=0, high=255, shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)),
-            # ("depth", spaces.Box(low=0.0, high=5.0, shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.float32)),
-            ("joint_pos", spaces.Box(low=-np.pi, high=np.pi, shape=(6,))),
-            ("eef_pos", spaces.Box(low=-2, high=2, shape=(3,))),
-            # ("gripper", spaces.Box(low=0, high=1, shape=(1,))),
-            ("target_rel", spaces.Box(low=-2, high=2, shape=(3,))),
+            # ("joint_pos", spaces.Box(low=-np.pi, high=np.pi, shape=(6,))),
+            ("eef_pos", spaces.Box(low=np.array([-0.2, -0.75, 0.95]), high=np.array([0.2, -0.45,1.3]), shape=(3,))),
+            # ("gripper", spaces.Box(low=-0.5, high=0.5, shape=(1,))),
+            ("target_rel", spaces.Box(low=0, high=2, shape=(3,))),
             # ("contact", spaces.Box(low=0, high=10, shape=(6,)))
-        ])) 
-        self.action_space = spaces.Box(low=-1, high=1, shape=(6,), dtype=np.float32)
-        # 训练参数
+        ]))
+        self.action_space = spaces.Discrete(7)
         self.current_step = 0
-        self.max_episode_steps = max_episode_steps
+        self.max_episode_steps=max_episode_steps
+
+          
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.robot.reset()
         mujoco.mj_resetData(self.model, self.data)
+        for _ in range(1000):
+            mujoco.mj_step(self.model, self.data)
+            self.viewer.sync()
+        self.robot.reset()
         self.current_step = 0
         obs = self._get_obs()
         info = {}
         return obs, info
     
     def step(self, action):
-        self._apply_action(action)
+        success=self._apply_action(action)
         obs = self._get_obs()
-        reward, success = self._compute_reward(obs, action)
+        reward, _ = self._compute_reward(obs, action)
         terminated = success
         truncated = (self.current_step >= self.max_episode_steps)
         self.current_step += 1
@@ -56,23 +68,36 @@ class GraspEnv(gym.Env):
     
     
     def _apply_action(self, action):
-        # self.robot._move_group_to_joint_target(group="Arm", target=action)
-        self.robot.move_group_to_joint_target_in_one_mjstep(group="Arm", target=action)
-        
-        # 位置判断：是否夹爪在物体上方，且距离足够近
+        delta = 0.06
+        action_map = {
+            0: np.array([-delta,  0.0,   0.0]),  # left
+            1: np.array([ 0.0,   -delta, 0.0]), 
+            2: np.array([ 0.0,    0.0,   -delta]),  #  down # forward
+            3: np.array([ delta,  0.0,   0.0]),
+            4: np.array([ 0.0,    delta, 0.0]),  # backward
+            5: np.array([ 0.0,    0.0,  delta]),  #up
+            6:np.array([ 0.0,    0.0,   0.0])
+        }
+        action = action_map[int(action)] 
         object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
         eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        ee_pos = self.data.xpos[eef_id].copy()
+        new_pos = ee_pos + action
+        print(new_pos)
+        clipped_pos = np.clip(new_pos, self.real_action_low, self.real_action_high)
+        self.robot.move_ee(clipped_pos)
+        obj_pos = self.data.xpos[object_id].copy()
+        horizontal_dist = np.linalg.norm(ee_pos[:2]+ [0, +0.005] - obj_pos[:2])
+        vertical_dist = ee_pos[2]-0.16 - obj_pos[2]
 
-        obj_pos = self.data.xpos[object_id]
-        ee_pos = self.data.xpos[eef_id]
-
-        horizontal_dist = np.linalg.norm(ee_pos[:2] - obj_pos[:2])
-        vertical_dist = ee_pos[2] - obj_pos[2]
-
-        if horizontal_dist < 0.05 and 0 < vertical_dist < 0.1:
-            # 自动闭合夹爪
-            print("close_gripper")
+        if horizontal_dist <= 0.05 and 0 < vertical_dist <= 0.03: 
             self.robot.close_gripper()
+            self.robot.stay(300)
+            self.robot.move_ee([0.0, -0.6, 1.1])
+            print("close gripper")
+            return True
+        return False 
+        
     
 
     
@@ -87,7 +112,7 @@ class GraspEnv(gym.Env):
         # rgb, depth = self.camera.get_image_data(show=True)
         eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
         proprio = OrderedDict({
-            "joint_pos": self.data.qpos[:6].copy(),
+            # "joint_pos": self.data.qpos[:6].copy(),
             "eef_pos": self.data.xpos[eef_id].copy(),
             # "gripper": self.data.qpos[6].copy(),
             "target_rel": self._get_target_relative_pos(),
@@ -96,14 +121,46 @@ class GraspEnv(gym.Env):
         return proprio
 
     def _compute_reward(self, obs, action):
-        reward = 0
+        """
+        奖励设计目标：
+        1. 鼓励 EE 靠近物体 (XY + Z)
+        2. 鼓励合适高度
+        3. 鼓励抓取
+        4. 惩罚大动作
+        """
+        success = False
 
-        # ===== 阶段 1：靠近目标 =====
-        dist = np.linalg.norm(obs["target_rel"])
-        reward += np.exp(-10 * dist)  # 距离越近，奖励越大（0~1）
+        # --- 获取位姿 ---
+        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
+        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        obj_pos = self.data.xpos[object_id].copy()
+        ee_pos = self.data.xpos[eef_id].copy()
 
-        success=False
-        action_penalty = 0.01 * np.sum(np.square(action))
-        reward -= action_penalty
+        # --- 距离奖励 ---
+       # 计算距离
+        rel_pos = ee_pos-[0, -0.005, 0.16] - obj_pos
+        xy_dist = np.linalg.norm(rel_pos[:2])
+        z_dist = abs(rel_pos[2] - 0.02)  # 理想抓取高度
+        
+        # 渐进式距离奖励
+        dist_reward = -10*xy_dist -5*z_dist
+
+        # --- 动作惩罚 ---
+        # action_penalty = 0.01 * np.sum(np.square(action))
+
+        # --- 抓取奖励 ---
+        gripper_pos = self.data.qpos[6]
+        gripper_closed = gripper_pos < -0.2  # 夹爪闭合阈值
+        grasp_reward = 0.5 if gripper_closed else 0.0
+
+        # --- 成功判断 ---
+        # object_lifted = obj_pos[2] > 1.05  # 初始高度约 1.0
+        if gripper_closed :
+            success = True
+            grasp_reward += 5.0  # 抬起物体额外奖励
+
+        # --- 总奖励组合 ---
+        reward =  dist_reward + grasp_reward 
+        # - action_penalty
 
         return reward, success

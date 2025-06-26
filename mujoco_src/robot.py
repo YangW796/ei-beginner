@@ -5,6 +5,7 @@ import mujoco
 import numpy as np
 from simple_pid import PID
 from ikpy.chain import Chain
+TABLE_HEIGHT=0.87
 class Robot:
     def __init__(self,path=None,model=None,data=None,viewer=None):
         self.model= model
@@ -21,7 +22,7 @@ class Robot:
         
     
     def reset(self):
-        self.data.qpos[:7] = np.array([-np.pi/2, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0, 0.02])
+        self.data.qpos[:7] = np.array([0, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0, 0.4])
         mujoco.mj_forward(self.model, self.data)
         self.viewer.sync()
     
@@ -65,12 +66,12 @@ class Robot:
     
     def open_gripper(self):
         return self._move_group_to_joint_target(
-            group="Gripper", target=[0.4], max_steps=1000, tolerance=0.05
+            group="Gripper", target=[0], max_steps=1000, tolerance=0.05
         )
     
     def close_gripper(self):
         return self._move_group_to_joint_target(
-            group="Gripper", target=[-0.4], tolerance=0.01) 
+            group="Gripper", target=[-0.4], max_steps=1000, tolerance=0.05) 
         
     def _move_group_to_joint_target(
         self,
@@ -110,12 +111,12 @@ class Robot:
                 )
             
             if max(deltas) < tolerance:
-                print(f"\033[1;32mJoint values for group {group} within requested tolerance! ({steps} steps)\033[0m")
+                # print(f"\033[1;32mJoint values for group {group} within requested tolerance! ({steps} steps)\033[0m")
                 reached_target = True
                 
             if steps > max_steps:
-                print(f"\033[1;31mMax number of steps reached: {max_steps}\033[0m")
-                print("Deltas: ", deltas)
+                # print(f"\033[1;31mMax number of steps reached: {max_steps}\033[0m")
+                # print("Deltas: ", deltas)
                 break
             
             mujoco.mj_step(self.model, self.data)
@@ -123,8 +124,14 @@ class Robot:
             # self.stay(1000)
             
             steps+=1   
-        self.stay(1000000)
         return reached_target,max(deltas)
+    
+    def mujoco_move_forward(self,target):
+        current_pos=self.data.qpos[:6].copy()
+        self.data.qpos[:6] =current_pos+target
+        mujoco.mj_forward(self.model, self.data)
+        mujoco.mj_step(self.model, self.data)
+        self.viewer.sync()
     
     def _ik(self, ee_position):
 
@@ -138,27 +145,27 @@ class Robot:
             gripper_center_position,
             target_orientation=[0,0,-1], 
             orientation_mode="X")
-        print(joint_angles)
         # Check accuracy using forward kinematics
         fk_pos = self.ee_chain.forward_kinematics(joint_angles)[:3, 3]
         prediction = fk_pos + base_pos - np.array([0, -0.005, 0.16])
-        print(prediction)
         error = np.linalg.norm(prediction - ee_position)
 
         joint_angles = joint_angles[1:-2]  # Remove fixed/base links
 
         if error < 0.02:
-            print("IK OK")
+            # print("IK OK")
+            return joint_angles
         else:
-            print("IK error too high:", error)
+            # print("IK error too high:", error)
+            return None
+
             
-        return joint_angles
+        
 
 
     def move_ee(self,ee_position):
-        joint_angles = self._ik(ee_position)
-        print(joint_angles)
-        return self._move_group_to_joint_target(group="Arm", target=joint_angles)
+        joint_angles = self._ik(ee_position) 
+        return self._move_group_to_joint_target(group="Arm", target=joint_angles) if joint_angles is not None else None
     
     def stay(self,duration):
         starting_time = time.time()
@@ -169,32 +176,41 @@ class Robot:
     
     def move_and_grasp(self, coordinates):
 
-        # Try to move directly above target
         coordinates_1 = copy.deepcopy(coordinates)
-        coordinates_1[2] = 0.8
+        coordinates_1[2] = 1.1
         result1,_= self.move_ee(coordinates_1)
+        print("result1")
+        self.stay(300)
         # result_rotate = self.rotate_wrist_3_joint_to_value(self.rotations[rotation])
-
         self.open_gripper()
         # Move to grasping height
+        print("result2")
+        self.stay(300)
         coordinates_2 = copy.deepcopy(coordinates)
-        coordinates_2[2] = max(TABLE_HEIGHT, coordinates_2[2] - 0.01)
-        result2,delta = self.move_ee(coordinates_2)
+        coordinates_2[2] = max(TABLE_HEIGHT, coordinates_2[2])
+        print("coordinates_2",coordinates_2)
+        self.move_ee(coordinates_2)
+        print("result3")
+        self.stay(300)
         
-        self.stay(100)
         result_grasp = self.close_gripper()
-
+        print("result4")
+        self.stay(300)
         # Move back above center of table
-        _result3 = self.move_ee([0.0, -0.6, 0.8])
-
+        self.move_ee([0.0, -0.6, 1.1])
+        print("result5")
+        self.stay(300)
         # Move to drop position
-        _result4 = self.move_ee([0.6, 0.0, 0.8])
-        self.stay(100)
-        result_final = self.close_gripper()
+        self.move_ee([0.6, 0.0, 1.1])
+        
+        print("result6")
+        self.stay(300)
         # Open gripper again
-        _result_open_again = self.open_gripper()
-        self.stay(100)
-        return result_grasp, delta
+        self.open_gripper()
+        print("result7")
+        
+        self.stay(300)
+        return result_grasp
         
         
         

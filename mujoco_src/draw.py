@@ -27,29 +27,32 @@ plt.ylabel("Episode Reward")
 plt.title("UR5 Grasping PPO (Gym)")
 plt.grid()
 plt.legend()
+plt.show()
 plt.savefig("./mujoco_src/logs/training_curve.png")
 plt.close()
 
-
+def stay(duration):
+        starting_time = time.time()
+        elapsed = 0
+        while elapsed < duration:
+            elapsed = (time.time() - starting_time) * 1000
 # 加载最新模型
-# best_model_dir = './mujoco_src/logs/best_model'
-# model_files = [f for f in os.listdir(best_model_dir) if f.endswith('.zip')]
-# model_files.sort()
-# latest_model_path = os.path.join(best_model_dir, model_files[-1])
-# model = PPO.load(latest_model_path)
+best_model_dir = './mujoco_src/logs/best_model'
+model_files = [f for f in os.listdir(best_model_dir) if f.endswith('.zip')]
+model_files.sort()
+latest_model_path = os.path.join(best_model_dir, model_files[-1])
+model = PPO.load(latest_model_path)
 
-# # 构建环境
-# env = DummyVecEnv([
-#     lambda: Monitor(GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml", 500))
-# ])
-# env = VecFrameStack(env, n_stack=1)
+# 构建环境
+env = DummyVecEnv([
+    lambda: Monitor(GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml", 200))
+])
+env = VecFrameStack(env, n_stack=1)
 
-# # 运行演示
-# obs = env.reset()
-# for _ in range(500):
-#     action, _ = model.predict(obs, deterministic=True)
-#     obs, reward, done, info = env.step(action)
-#     env.render()
-#     time.sleep(0.1)
-#     if done.any():
-#         obs = env.reset()
+# 运行演示
+obs = env.reset()
+for _ in range(200):
+    action, _ = model.predict(obs, deterministic=True)
+    obs, reward, done, info = env.step(action)
+    stay(300)
+    
