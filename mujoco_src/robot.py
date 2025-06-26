@@ -5,6 +5,7 @@ import mujoco
 import numpy as np
 from simple_pid import PID
 from ikpy.chain import Chain
+from math import cos, sin, atan2, acos, sqrt
 TABLE_HEIGHT=0.87
 class Robot:
     def __init__(self,path=None,model=None,data=None,viewer=None):
@@ -153,18 +154,14 @@ class Robot:
         joint_angles = joint_angles[1:-2]  # Remove fixed/base links
 
         if error < 0.02:
-            # print("IK OK")
             return joint_angles
         else:
-            # print("IK error too high:", error)
             return None
 
-            
-        
 
 
     def move_ee(self,ee_position):
-        joint_angles = self._ik(ee_position) 
+        joint_angles = self._ik_2(ee_position) 
         return self._move_group_to_joint_target(group="Arm", target=joint_angles) if joint_angles is not None else None
     
     def stay(self,duration):
@@ -212,6 +209,65 @@ class Robot:
         self.stay(300)
         return result_grasp
         
+    def _ik_2(self, ee_position):
+        """自定义逆动力学实现"""
+        # UR5机械臂的DH参数
+        a = [0, -0.425, -0.39225, 0, 0, 0]
+        d = [0.089159, 0, 0, 0.10915, 0.09465, 0.0823]
+        alpha = [np.pi/2, 0, 0, np.pi/2, -np.pi/2, 0]
         
+        # 转换为相对于基座的位置
+        base_pos = self.data.xpos[self.model.body('base_link').id]
+        x, y, z = ee_position - base_pos - np.array([0, -0.005, 0.16])  # 调整夹爪中心
+        
+        # 计算关节角度
+        theta = np.zeros(6)
+        
+        # 关节1 (base rotation)
+        theta[0] = atan2(y, x)
+        
+        # 关节3 (elbow)
+        r = sqrt(x**2 + y**2)
+        s = z - d[0]
+        D = (r**2 + s**2 - a[1]**2 - a[2]**2) / (2 * a[1] * a[2])
+        theta[2] = atan2(-sqrt(1 - D**2), D)
+        
+        # 关节2 (shoulder)
+        theta[1] = atan2(s, r) - atan2(a[2]*sin(theta[2]), a[1] + a[2]*cos(theta[2]))
+        
+        # 计算手腕位置
+        T01 = self._dh_matrix(theta[0], d[0], a[0], alpha[0])
+        T12 = self._dh_matrix(theta[1], d[1], a[1], alpha[1])
+        T23 = self._dh_matrix(theta[2], d[2], a[2], alpha[2])
+        T03 = np.dot(np.dot(T01, T12), T23)
+        
+        # 手腕位置
+        wrist_pos = T03[:3, 3]
+        
+        # 计算手腕方向
+        wrist_orient = np.array([0, 0, -1])  # 简化假设
+        
+        # 关节4,5,6 (wrist)
+        # 这里简化处理，实际应用中需要更精确的计算
+        theta[3] = -np.pi/2  # 固定值
+        theta[4] = 0          # 固定值
+        theta[5] = 0          # 固定值
+        
+        # 返回前5个关节角度(忽略手腕旋转)
+        return theta[:5]
+    
+    def _dh_matrix(self, theta, d, a, alpha):
+        """计算DH变换矩阵"""
+        ct = cos(theta)
+        st = sin(theta)
+        ca = cos(alpha)
+        sa = sin(alpha)
+        
+        return np.array([
+            [ct, -st*ca, st*sa, a*ct],
+            [st, ct*ca, -ct*sa, a*st],
+            [0, sa, ca, d],
+            [0, 0, 0, 1]
+        ])    
         
         
