@@ -161,7 +161,7 @@ class Robot:
 
 
     def move_ee(self,ee_position):
-        joint_angles = self._ik_2(ee_position) 
+        joint_angles = self._ik(ee_position) 
         return self._move_group_to_joint_target(group="Arm", target=joint_angles) if joint_angles is not None else None
     
     def stay(self,duration):
@@ -210,64 +210,82 @@ class Robot:
         return result_grasp
         
     def _ik_2(self, ee_position):
-        """自定义逆动力学实现"""
-        # UR5机械臂的DH参数
-        a = [0, -0.425, -0.39225, 0, 0, 0]
-        d = [0.089159, 0, 0, 0.10915, 0.09465, 0.0823]
-        alpha = [np.pi/2, 0, 0, np.pi/2, -np.pi/2, 0]
+        """
+        使用逆动力学控制实现UR5移动到指定位置（兼容新版MuJoCo）
+        """
+        # 控制参数
+        kp = 100.0  # 位置增益
+        kd = 20.0   # 阻尼增益
+        max_steps = 200# 最大迭代步数
+        tolerance = 0.01  # 位置容差
         
-        # 转换为相对于基座的位置
-        base_pos = self.data.xpos[self.model.body('base_link').id]
-        x, y, z = ee_position - base_pos - np.array([0, -0.005, 0.16])  # 调整夹爪中心
+        # 获取末端执行器站点ID
+        site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
+        if site_id == -1:
+            print("Error: 'ee_site' not found in model")
+            return None
         
-        # 计算关节角度
-        theta = np.zeros(6)
+        # 保存初始关节位置
+        initial_qpos = self.data.qpos.copy()
         
-        # 关节1 (base rotation)
-        theta[0] = atan2(y, x)
+        # 初始化变量用于速度计算
+        prev_pos = self.data.site(site_id).xpos.copy()
         
-        # 关节3 (elbow)
-        r = sqrt(x**2 + y**2)
-        s = z - d[0]
-        D = (r**2 + s**2 - a[1]**2 - a[2]**2) / (2 * a[1] * a[2])
-        theta[2] = atan2(-sqrt(1 - D**2), D)
+        # 逆动力学控制循环
+        for step in range(max_steps):
+            # 获取当前末端执行器位置
+            current_pos = self.data.site(site_id).xpos.copy()
+            
+            # 计算速度（数值微分）
+            if step > 0:
+                current_vel = (current_pos - prev_pos) / self.model.opt.timestep
+            else:
+                current_vel = np.zeros(3)
+            prev_pos = current_pos.copy()
+            
+            # 计算位置误差和期望加速度
+            pos_error = ee_position - current_pos
+            desired_acc = kp * pos_error - kd * current_vel
+            
+            # 计算雅可比矩阵
+            jacp = np.zeros((3, self.model.nv))
+            jacr = np.zeros((3, self.model.nv))
+            mujoco.mj_jacSite(self.model, self.data, jacp, jacr, site_id)
+            
+            # 伪逆计算（只考虑前6个关节）
+            jac = jacp[:, :6]
+            jac_pinv = np.linalg.pinv(jac)
+            
+            # 计算关节空间加速度
+            qacc_desired = jac_pinv @ desired_acc
+            
+            # 计算逆动力学扭矩
+            # 保存当前状态
+            qpos_prev = self.data.qpos.copy()
+            qvel_prev = self.data.qvel.copy()
+            
+            # 设置期望的加速度
+            self.data.qacc[:6] = qacc_desired
+            
+            # 计算逆动力学
+            mujoco.mj_inverse(self.model, self.data)
+            
+            # 恢复之前的状态
+            self.data.qpos = qpos_prev
+            self.data.qvel = qvel_prev
+            
+            # 应用扭矩（只控制前6个关节）
+            self.data.ctrl[:6] = self.data.qfrc_inverse[:6]
+            
+            # 步进仿真
+            mujoco.mj_step(self.model, self.data)
+            self.viewer.sync()
+            
+            # 检查是否到达目标
+            if np.linalg.norm(pos_error) < tolerance:
+                print(f"Reached target position in {step} steps")
+                return self.data.qpos[:6].copy()
         
-        # 关节2 (shoulder)
-        theta[1] = atan2(s, r) - atan2(a[2]*sin(theta[2]), a[1] + a[2]*cos(theta[2]))
-        
-        # 计算手腕位置
-        T01 = self._dh_matrix(theta[0], d[0], a[0], alpha[0])
-        T12 = self._dh_matrix(theta[1], d[1], a[1], alpha[1])
-        T23 = self._dh_matrix(theta[2], d[2], a[2], alpha[2])
-        T03 = np.dot(np.dot(T01, T12), T23)
-        
-        # 手腕位置
-        wrist_pos = T03[:3, 3]
-        
-        # 计算手腕方向
-        wrist_orient = np.array([0, 0, -1])  # 简化假设
-        
-        # 关节4,5,6 (wrist)
-        # 这里简化处理，实际应用中需要更精确的计算
-        theta[3] = -np.pi/2  # 固定值
-        theta[4] = 0          # 固定值
-        theta[5] = 0          # 固定值
-        
-        # 返回前5个关节角度(忽略手腕旋转)
-        return theta[:5]
-    
-    def _dh_matrix(self, theta, d, a, alpha):
-        """计算DH变换矩阵"""
-        ct = cos(theta)
-        st = sin(theta)
-        ca = cos(alpha)
-        sa = sin(alpha)
-        
-        return np.array([
-            [ct, -st*ca, st*sa, a*ct],
-            [st, ct*ca, -ct*sa, a*st],
-            [0, sa, ca, d],
-            [0, 0, 0, 1]
-        ])    
-        
-        
+        # 如果未能在最大步数内到达目标
+        print("Warning: Failed to reach target position within max steps")
+        return None

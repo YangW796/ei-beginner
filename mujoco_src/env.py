@@ -98,24 +98,15 @@ class GraspEnv(gym.Env):
             return True
         return False 
         
-    
-
-    
-    def _get_target_relative_pos(self):
-        # 计算目标相对位置
-        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
-        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
-        
-        return self.data.xpos[eef_id].copy() - self.data.xpos[object_id].copy()
-        
     def _get_obs(self):
         # rgb, depth = self.camera.get_image_data(show=True)
         eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
         proprio = OrderedDict({
             # "joint_pos": self.data.qpos[:6].copy(),
             "eef_pos": self.data.xpos[eef_id].copy(),
             # "gripper": self.data.qpos[6].copy(),
-            "target_rel": self._get_target_relative_pos(),
+            "target_rel": self.data.xpos[eef_id].copy() - self.data.xpos[object_id].copy(),
             # "contact": self.data.sensor_data[:6].copy()
         })
         return proprio
