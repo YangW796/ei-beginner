@@ -23,6 +23,7 @@ class Robot:
     
     def reset(self):
         self.data.qpos[:7] = np.array([0, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0, 0.4])
+        self.open_gripper()
         mujoco.mj_forward(self.model, self.data)
         self.viewer.sync()
     

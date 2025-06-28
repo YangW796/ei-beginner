@@ -10,7 +10,7 @@ from env import GraspEnv
 import os
 import time
 
-log_dir = "./mujoco_src/logs/monitor"
+log_dir = "./mujoco_src/logs/monitor_0"
 data = load_results(log_dir)
 
 # 画图
@@ -45,13 +45,13 @@ model = PPO.load(latest_model_path)
 
 # 构建环境
 env = DummyVecEnv([
-    lambda: Monitor(GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml", 200))
+    lambda: Monitor(GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml", 256))
 ])
 env = VecFrameStack(env, n_stack=1)
 
 # 运行演示
 obs = env.reset()
-for _ in range(200):
+for _ in range(256):
     action, _ = model.predict(obs, deterministic=True)
     obs, reward, done, info = env.step(action)
     stay(300)

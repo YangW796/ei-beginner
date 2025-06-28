@@ -14,30 +14,29 @@ class CustomFeatureExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space, features_dim=64):
         super().__init__(observation_space, features_dim)
         self.proprio_fc = nn.Sequential(
-            nn.Linear(6, 64),
+            nn.Linear(3, 64),
             nn.ReLU()
         )
         
     def forward(self, observations):
         proprio = torch.cat([
             observations["eef_pos"],
-            observations["target_rel"],
+            # observations["target_rel"],
         ], dim=1)
         return self.proprio_fc(proprio)
 if __name__ == "__main__":
     # ================== 并行环境数 ==================
     n_envs = 4
     n_steps = 256  # 每个环境收集的步数
-    total_timesteps = n_steps * 100
-
-    log_dir = "./mujoco_src/logs/monitor"
-    os.makedirs(log_dir, exist_ok=True)
+    total_timesteps = n_steps *n_envs* 80
 
     # ================== 并行环境封装 ==================
-    def make_env():
+    def make_env(i):
+        log_dir = f"./mujoco_src/logs/monitor_{i}"
+        os.makedirs(log_dir, exist_ok=True)
         return lambda: Monitor(GraspEnv("./model/UR5+gripper/UR5gripper_2_finger.xml", max_episode_steps=n_steps), log_dir)
 
-    env = SubprocVecEnv([make_env() for _ in range(n_envs)])
+    env = SubprocVecEnv([make_env(i) for i in range(n_envs)])
 
     # ================== 模型配置 ==================
     policy_kwargs = {
@@ -52,7 +51,7 @@ if __name__ == "__main__":
         policy_kwargs=policy_kwargs,
         n_steps=n_steps,
         batch_size=n_steps * n_envs,  # 确保整除
-        learning_rate=0.005,
+        learning_rate=0.01,
         verbose=1,
         tensorboard_log="./mujoco_src/logs/tensorboard/"
     )

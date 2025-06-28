@@ -28,17 +28,17 @@ class GraspEnv(gym.Env):
          
         # low = np.array([-np.pi, -np.pi, 0, -np.pi, -np.pi, -np.pi], dtype=np.float32)
         # high = np.array([np.pi, 0, np.pi, np.pi, np.pi, np.pi], dtype=np.float32)
-        self.real_action_low = np.array([-0.15, -0.75, 1.3 ])
-        self.real_action_high = np.array([0.15, -0.45,0.95])
+        self.real_action_low = np.array([-0.15, -0.75,1.1])
+        self.real_action_high = np.array([0.15, -0.45,1.1])
         # self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Dict(OrderedDict([
             # ("joint_pos", spaces.Box(low=-np.pi, high=np.pi, shape=(6,))),
             ("eef_pos", spaces.Box(low=np.array([-0.2, -0.75, 0.95]), high=np.array([0.2, -0.45,1.3]), shape=(3,))),
             # ("gripper", spaces.Box(low=-0.5, high=0.5, shape=(1,))),
-            ("target_rel", spaces.Box(low=0, high=2, shape=(3,))),
+            # ("target_rel", spaces.Box(low=0, high=2, shape=(3,))),
             # ("contact", spaces.Box(low=0, high=10, shape=(6,)))
         ]))
-        self.action_space = spaces.Discrete(7)
+        self.action_space = spaces.Discrete(4)
         self.current_step = 0
         self.max_episode_steps=max_episode_steps
 
@@ -68,33 +68,46 @@ class GraspEnv(gym.Env):
     
     
     def _apply_action(self, action):
+        
+        
+        
+        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
+        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
+        ee_pos = self.data.xpos[eef_id].copy()
+        obj_pos = self.data.xpos[object_id].copy()
+        horizontal_dist = np.linalg.norm(ee_pos[:2] - obj_pos[:2])
         delta = 0.06
         action_map = {
             0: np.array([-delta,  0.0,   0.0]),  # left
             1: np.array([ 0.0,   -delta, 0.0]), 
-            2: np.array([ 0.0,    0.0,   -delta]),  #  down # forward
-            3: np.array([ delta,  0.0,   0.0]),
-            4: np.array([ 0.0,    delta, 0.0]),  # backward
-            5: np.array([ 0.0,    0.0,  delta]),  #up
-            6:np.array([ 0.0,    0.0,   0.0])
+            # 2: np.array([ 0.0,    0.0,   -delta]),  #  down # forward
+            2: np.array([ delta,  0.0,   0.0]),
+            3: np.array([ 0.0,    delta, 0.0]),  # backward
+            # 5: np.array([ 0.0,    0.0,  delta]),  #up
         }
         action = action_map[int(action)] 
-        object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
-        eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
-        ee_pos = self.data.xpos[eef_id].copy()
+        
         new_pos = ee_pos + action
-        print(new_pos)
         clipped_pos = np.clip(new_pos, self.real_action_low, self.real_action_high)
         self.robot.move_ee(clipped_pos)
+        
+        ee_pos = self.data.xpos[eef_id].copy()
         obj_pos = self.data.xpos[object_id].copy()
-        horizontal_dist = np.linalg.norm(ee_pos[:2]+ [0, +0.005] - obj_pos[:2])
-        vertical_dist = ee_pos[2]-0.16 - obj_pos[2]
+        horizontal_dist = np.linalg.norm(ee_pos[:2] - obj_pos[:2])
+        print(ee_pos-[0,0,0.16]-obj_pos)
 
-        if horizontal_dist <= 0.05 and 0 < vertical_dist <= 0.03: 
+        if horizontal_dist <= 0.02: 
+            self.robot.open_gripper()
+            self.robot.stay(300)
+            ee_pos = self.data.xpos[eef_id].copy()
+            obj_pos = self.data.xpos[object_id].copy()
+            self.robot.move_ee([ee_pos[0],ee_pos[1],0.94])
+            self.robot.stay(300)
             self.robot.close_gripper()
+            print("close gripper")
             self.robot.stay(300)
             self.robot.move_ee([0.0, -0.6, 1.1])
-            print("close gripper")
+            self.robot.stay(300)
             return True
         return False 
         
@@ -115,7 +128,7 @@ class GraspEnv(gym.Env):
             # "joint_pos": self.data.qpos[:6].copy(),
             "eef_pos": self.data.xpos[eef_id].copy(),
             # "gripper": self.data.qpos[6].copy(),
-            "target_rel": self._get_target_relative_pos(),
+            # "target_rel": self._get_target_relative_pos(),
             # "contact": self.data.sensor_data[:6].copy()
         })
         return proprio
@@ -143,7 +156,8 @@ class GraspEnv(gym.Env):
         z_dist = abs(rel_pos[2] - 0.02)  # 理想抓取高度
         
         # 渐进式距离奖励
-        dist_reward = -10*xy_dist -5*z_dist
+        dist_reward = -10*xy_dist 
+        # -5*z_dist
 
         # --- 动作惩罚 ---
         # action_penalty = 0.01 * np.sum(np.square(action))
@@ -151,12 +165,16 @@ class GraspEnv(gym.Env):
         # --- 抓取奖励 ---
         gripper_pos = self.data.qpos[6]
         gripper_closed = gripper_pos < -0.2  # 夹爪闭合阈值
-        grasp_reward = 0.5 if gripper_closed else 0.0
+        grasp_reward=0
+        if gripper_closed:
+            grasp_reward = 0.5  
+            print("grasp_reward")
 
         # --- 成功判断 ---
-        # object_lifted = obj_pos[2] > 1.05  # 初始高度约 1.0
-        if gripper_closed :
+        object_lifted = obj_pos[2] > 1 # 初始高度约 1.0
+        if gripper_closed and object_lifted:
             success = True
+            print("success_reward")
             grasp_reward += 5.0  # 抬起物体额外奖励
 
         # --- 总奖励组合 ---
