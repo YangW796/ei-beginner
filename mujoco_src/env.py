@@ -68,9 +68,6 @@ class GraspEnv(gym.Env):
     
     
     def _apply_action(self, action):
-        
-        
-        
         object_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "box_1")
         eef_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_link")
         ee_pos = self.data.xpos[eef_id].copy()
@@ -153,8 +150,6 @@ class GraspEnv(gym.Env):
        # 计算距离
         rel_pos = ee_pos-[0, -0.005, 0.16] - obj_pos
         xy_dist = np.linalg.norm(rel_pos[:2])
-        z_dist = abs(rel_pos[2] - 0.02)  # 理想抓取高度
-        
         # 渐进式距离奖励
         dist_reward = -10*xy_dist 
         # -5*z_dist

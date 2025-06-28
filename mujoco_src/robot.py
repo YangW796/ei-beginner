@@ -212,7 +212,3 @@ class Robot:
         
         self.stay(300)
         return result_grasp
-        
-        
-        
-        
