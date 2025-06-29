@@ -5,7 +5,7 @@ import mujoco
 import numpy as np
 from simple_pid import PID
 from ikpy.chain import Chain
-from math import cos, sin, atan2, acos, sqrt
+from simple_ik.chain import Chain as Simple_Chain
 TABLE_HEIGHT=0.87
 class Robot:
     def __init__(self,path=None,model=None,data=None,viewer=None):
@@ -19,6 +19,7 @@ class Robot:
         self.groups["Gripper"]=[6]
         self.actuated_joint_ids = np.array([i[2] for i in self.actuators]).astype(int)
         self.ee_chain = Chain.from_urdf_file("./model/UR5+gripper/ur5_gripper.urdf")
+        self.simple_ee_chain = Simple_Chain.from_urdf_file("./model/UR5+gripper/ur5_gripper.urdf")
         self.reset()
         
     
@@ -162,7 +163,7 @@ class Robot:
 
     def move_ee(self,ee_position):
         joint_angles = self._ik(ee_position) 
-        return self._move_group_to_joint_target(group="Arm", target=joint_angles) if joint_angles is not None else None
+        return self._move_group_to_joint_target(group="Arm", target=joint_angles)
     
     def stay(self,duration):
         starting_time = time.time()
@@ -175,7 +176,7 @@ class Robot:
 
         coordinates_1 = copy.deepcopy(coordinates)
         coordinates_1[2] = 1.1
-        result1,_= self.move_ee(coordinates_1)
+        result1= self.move_ee(coordinates_1)
         print("result1")
         self.stay(300)
         # result_rotate = self.rotate_wrist_3_joint_to_value(self.rotations[rotation])
@@ -210,82 +211,25 @@ class Robot:
         return result_grasp
         
     def _ik_2(self, ee_position):
-        """
-        使用逆动力学控制实现UR5移动到指定位置（兼容新版MuJoCo）
-        """
-        # 控制参数
-        kp = 100.0  # 位置增益
-        kd = 20.0   # 阻尼增益
-        max_steps = 200# 最大迭代步数
-        tolerance = 0.01  # 位置容差
-        
-        # 获取末端执行器站点ID
-        site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
-        if site_id == -1:
-            print("Error: 'ee_site' not found in model")
+
+        # Convert world target position to base frame
+        base_pos = self.data.xpos[self.model.body('base_link').id]
+        ee_position_base = ee_position - base_pos
+        # Add offset to transform ee_link → gripper center
+        gripper_center_position = ee_position_base + np.array([0, -0.005, 0.16])
+    
+        joint_angles = self.simple_ee_chain .inverse_kinematics(
+            gripper_center_position,
+            target_orientation=[0,0,-1], 
+            orientation_mode="X")
+        # Check accuracy using forward kinematics
+        fk_pos = self.simple_ee_chain .forward_kinematics(joint_angles)[:3, 3]
+        prediction = fk_pos + base_pos - np.array([0, -0.005, 0.16])
+        error = np.linalg.norm(prediction - ee_position)
+
+        joint_angles = joint_angles[1:-2]  # Remove fixed/base links
+
+        if error < 0.02:
+            return joint_angles
+        else:
             return None
-        
-        # 保存初始关节位置
-        initial_qpos = self.data.qpos.copy()
-        
-        # 初始化变量用于速度计算
-        prev_pos = self.data.site(site_id).xpos.copy()
-        
-        # 逆动力学控制循环
-        for step in range(max_steps):
-            # 获取当前末端执行器位置
-            current_pos = self.data.site(site_id).xpos.copy()
-            
-            # 计算速度（数值微分）
-            if step > 0:
-                current_vel = (current_pos - prev_pos) / self.model.opt.timestep
-            else:
-                current_vel = np.zeros(3)
-            prev_pos = current_pos.copy()
-            
-            # 计算位置误差和期望加速度
-            pos_error = ee_position - current_pos
-            desired_acc = kp * pos_error - kd * current_vel
-            
-            # 计算雅可比矩阵
-            jacp = np.zeros((3, self.model.nv))
-            jacr = np.zeros((3, self.model.nv))
-            mujoco.mj_jacSite(self.model, self.data, jacp, jacr, site_id)
-            
-            # 伪逆计算（只考虑前6个关节）
-            jac = jacp[:, :6]
-            jac_pinv = np.linalg.pinv(jac)
-            
-            # 计算关节空间加速度
-            qacc_desired = jac_pinv @ desired_acc
-            
-            # 计算逆动力学扭矩
-            # 保存当前状态
-            qpos_prev = self.data.qpos.copy()
-            qvel_prev = self.data.qvel.copy()
-            
-            # 设置期望的加速度
-            self.data.qacc[:6] = qacc_desired
-            
-            # 计算逆动力学
-            mujoco.mj_inverse(self.model, self.data)
-            
-            # 恢复之前的状态
-            self.data.qpos = qpos_prev
-            self.data.qvel = qvel_prev
-            
-            # 应用扭矩（只控制前6个关节）
-            self.data.ctrl[:6] = self.data.qfrc_inverse[:6]
-            
-            # 步进仿真
-            mujoco.mj_step(self.model, self.data)
-            self.viewer.sync()
-            
-            # 检查是否到达目标
-            if np.linalg.norm(pos_error) < tolerance:
-                print(f"Reached target position in {step} steps")
-                return self.data.qpos[:6].copy()
-        
-        # 如果未能在最大步数内到达目标
-        print("Warning: Failed to reach target position within max steps")
-        return None
