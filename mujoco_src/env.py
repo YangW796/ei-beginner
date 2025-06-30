@@ -57,14 +57,24 @@ class GraspEnv(gym.Env):
         return obs, info
     
     def step(self, action):
-        success=self._apply_action(action)
-        obs = self._get_obs()
-        reward, _ = self._compute_reward(obs, action)
-        terminated = success
-        truncated = (self.current_step >= self.max_episode_steps)
-        self.current_step += 1
-        info = {"is_success": success}
-        return obs, reward, terminated, truncated, info
+        try:
+            success=self._apply_action(action)
+            obs = self._get_obs()
+            reward, _ = self._compute_reward(obs, action)
+            terminated = success
+            truncated = (self.current_step >= self.max_episode_steps)
+            self.current_step += 1
+            info = {"is_success": success}
+            return obs, reward, terminated, truncated, info
+        except Exception as e:
+            print("❌ Error in step():", e)
+            obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+            reward = 0.0
+            terminated = True  # 或 False，视情况而定
+            truncated = True
+            info = {"is_success": False, "error": str(e)}
+
+            return obs, reward, terminated, truncated, info
     
     
     def _apply_action(self, action):
@@ -73,7 +83,7 @@ class GraspEnv(gym.Env):
         ee_pos = self.data.xpos[eef_id].copy()
         obj_pos = self.data.xpos[object_id].copy()
         horizontal_dist = np.linalg.norm(ee_pos[:2] - obj_pos[:2])
-        delta = 0.06
+        delta = 0.05
         action_map = {
             0: np.array([-delta,  0.0,   0.0]),  # left
             1: np.array([ 0.0,   -delta, 0.0]), 
@@ -86,19 +96,20 @@ class GraspEnv(gym.Env):
         
         new_pos = ee_pos + action
         clipped_pos = np.clip(new_pos, self.real_action_low, self.real_action_high)
-        self.robot.move_ee(clipped_pos)
+        print(clipped_pos)
+        self.robot.move_ee(clipped_pos,pid=False)
         
         ee_pos = self.data.xpos[eef_id].copy()
         obj_pos = self.data.xpos[object_id].copy()
         horizontal_dist = np.linalg.norm(ee_pos[:2] - obj_pos[:2])
-        print(ee_pos-[0,0,0.16]-obj_pos)
+        # print(ee_pos-[0,0,0.16]-obj_pos)
 
         if horizontal_dist <= 0.02: 
             self.robot.open_gripper()
             self.robot.stay(300)
             ee_pos = self.data.xpos[eef_id].copy()
             obj_pos = self.data.xpos[object_id].copy()
-            self.robot.move_ee([ee_pos[0],ee_pos[1],0.94])
+            self.robot.move_ee([ee_pos[0],ee_pos[1],0.932])
             self.robot.stay(300)
             self.robot.close_gripper()
             print("close gripper")
@@ -148,10 +159,12 @@ class GraspEnv(gym.Env):
 
         # --- 距离奖励 ---
        # 计算距离
-        rel_pos = ee_pos-[0, -0.005, 0.16] - obj_pos
+        rel_pos = ee_pos-[0,0, 0.16] - obj_pos
         xy_dist = np.linalg.norm(rel_pos[:2])
+        x_dist=abs(rel_pos[0])
+        y_dist=abs(rel_pos[1])
         # 渐进式距离奖励
-        dist_reward = -10*xy_dist 
+        dist_reward = 0.25-10*xy_dist -3*x_dist-3*y_dist
         # -5*z_dist
 
         # --- 动作惩罚 ---
@@ -162,7 +175,7 @@ class GraspEnv(gym.Env):
         gripper_closed = gripper_pos < -0.2  # 夹爪闭合阈值
         grasp_reward=0
         if gripper_closed:
-            grasp_reward = 0.5  
+            grasp_reward = 1  
             print("grasp_reward")
 
         # --- 成功判断 ---
@@ -170,7 +183,7 @@ class GraspEnv(gym.Env):
         if gripper_closed and object_lifted:
             success = True
             print("success_reward")
-            grasp_reward += 5.0  # 抬起物体额外奖励
+            grasp_reward += 10  # 抬起物体额外奖励
 
         # --- 总奖励组合 ---
         reward =  dist_reward + grasp_reward 

@@ -78,7 +78,7 @@ class Robot:
         self,
         group,
         target=None,
-        tolerance=0.05,
+        tolerance=0.01,
         max_steps=3000
     ):
         idxs = self.groups[group]
@@ -103,13 +103,7 @@ class Robot:
             
             for i in idxs:
                 deltas[i] = abs(self.current_target_joint_values[i] - current_joint_values[i])
-            
-            if steps % 1000 == 0:
-                print(
-                    "Moving group {} to joint target! Max. delta: {}, Joint: {}".format(
-                        group, max(deltas), self.actuators[np.argmax(deltas)][3]
-                    )
-                )
+        
             
             if max(deltas) < tolerance:
                 # print(f"\033[1;32mJoint values for group {group} within requested tolerance! ({steps} steps)\033[0m")
@@ -127,20 +121,13 @@ class Robot:
             steps+=1   
         return reached_target,max(deltas)
     
-    def mujoco_move_forward(self,target):
-        current_pos=self.data.qpos[:6].copy()
-        self.data.qpos[:6] =current_pos+target
-        mujoco.mj_forward(self.model, self.data)
-        mujoco.mj_step(self.model, self.data)
-        self.viewer.sync()
-    
     def _ik(self, ee_position):
 
         # Convert world target position to base frame
         base_pos = self.data.xpos[self.model.body('base_link').id]
         ee_position_base = ee_position - base_pos
         # Add offset to transform ee_link → gripper center
-        gripper_center_position = ee_position_base + np.array([0, -0.005, 0.16])
+        gripper_center_position = ee_position_base + np.array([0, 0, 0.16])
     
         joint_angles = self.ee_chain.inverse_kinematics(
             gripper_center_position,
@@ -148,7 +135,7 @@ class Robot:
             orientation_mode="X")
         # Check accuracy using forward kinematics
         fk_pos = self.ee_chain.forward_kinematics(joint_angles)[:3, 3]
-        prediction = fk_pos + base_pos - np.array([0, -0.005, 0.16])
+        prediction = fk_pos + base_pos - np.array([0, 0 ,0.16])
         error = np.linalg.norm(prediction - ee_position)
 
         joint_angles = joint_angles[1:-2]  # Remove fixed/base links
@@ -164,9 +151,14 @@ class Robot:
         
 
 
-    def move_ee(self,ee_position):
+    def move_ee(self,ee_position,pid=True):
         joint_angles = self._ik(ee_position) 
-        return self._move_group_to_joint_target(group="Arm", target=joint_angles) if joint_angles is not None else None
+        if pid:
+            self._move_group_to_joint_target(group="Arm", target=joint_angles)
+        else:
+            self.data.qpos[:5] = joint_angles
+            mujoco.mj_forward(self.model, self.data)
+            self.viewer.sync()
     
     def stay(self,duration):
         starting_time = time.time()
@@ -179,7 +171,7 @@ class Robot:
 
         coordinates_1 = copy.deepcopy(coordinates)
         coordinates_1[2] = 1.1
-        result1,_= self.move_ee(coordinates_1)
+        self.move_ee(coordinates_1)
         print("result1")
         self.stay(300)
         # result_rotate = self.rotate_wrist_3_joint_to_value(self.rotations[rotation])

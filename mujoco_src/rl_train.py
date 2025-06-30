@@ -51,7 +51,7 @@ if __name__ == "__main__":
         policy_kwargs=policy_kwargs,
         n_steps=n_steps,
         batch_size=n_steps * n_envs,  # 确保整除
-        learning_rate=0.01,
+        learning_rate=0.001,
         verbose=1,
         tensorboard_log="./mujoco_src/logs/tensorboard/"
     )

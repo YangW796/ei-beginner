@@ -11,3 +11,4 @@ mujoco_src/UR5+gripper
 MJDATA.TXT
 src
 urdf_to_dh
+mujoco_src/simple_ik
