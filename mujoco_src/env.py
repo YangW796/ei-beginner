@@ -58,6 +58,7 @@ class GraspEnv(gym.Env):
     
     def step(self, action):
         try:
+            
             success=self._apply_action(action)
             obs = self._get_obs()
             reward, _ = self._compute_reward(obs, action)

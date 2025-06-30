@@ -72,7 +72,7 @@ def make_test_env():
 
 if __name__ == "__main__":
     # ==== 模型路径 ====
-    model_path = "./mujoco_src/logs/best_model/rl_model_71680_steps.zip"  # 请根据你保存的模型文件名调整
+    model_path = "./mujoco_src/logs/best_model/rl_model_2048_steps.zip"  # 请根据你保存的模型文件名调整
 
     # ==== 创建测试环境 ====
     env = make_test_env()
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         step = 0
 
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs)
             obs, reward, done, info = env.step(action)
             total_reward += reward[0]  # DummyVecEnv 返回的是批量（长度为1）
 
