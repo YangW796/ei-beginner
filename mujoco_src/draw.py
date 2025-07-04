@@ -1,22 +1,22 @@
-import imageio
 from stable_baselines3.common.results_plotter import load_results
-from tqdm import trange
 from stable_baselines3.common.vec_env import DummyVecEnv
 from env import GraspEnv
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 from env import GraspEnv
-import os
 import time
+import torch
+from stable_baselines3 import PPO
+from env import GraspEnv
+import time
+import matplotlib.pyplot as plt
+from rl_train import CustomFeatureExtractor
 
 log_dir = "./mujoco_src/logs/monitor_3"
 data = load_results(log_dir)
 
 # 画图
-import matplotlib.pyplot as plt
-import numpy as np
-
 timesteps = data['t']
 rewards = data['r']
 
@@ -36,32 +36,6 @@ def stay(duration):
         elapsed = 0
         while elapsed < duration:
             elapsed = (time.time() - starting_time) * 1000
-import os
-import torch
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from env import GraspEnv
-import numpy as np
-import time
-
-# ================== 特征提取器 (和训练一致) ==================
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-import torch.nn as nn
-
-class CustomFeatureExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, features_dim=64):
-        super().__init__(observation_space, features_dim)
-        self.proprio_fc = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.ReLU()
-        )
-        
-    def forward(self, observations):
-        proprio = torch.cat([
-            observations["eef_pos"],
-            # observations["target_rel"],  # 如果训练时用了 target_rel，取消注释
-        ], dim=1)
-        return self.proprio_fc(proprio)
 
 # ==== 创建 DummyVecEnv 包裹的单环境 ====
 def make_test_env():
@@ -72,7 +46,7 @@ def make_test_env():
 
 if __name__ == "__main__":
     # ==== 模型路径 ====
-    model_path = "./mujoco_src/logs/best_model/rl_model_2048_steps.zip"  # 请根据你保存的模型文件名调整
+    model_path = "./mujoco_src/logs/best_model/rl_model_40960_steps.zip"  # 请根据你保存的模型文件名调整
 
     # ==== 创建测试环境 ====
     env = make_test_env()
@@ -101,8 +75,6 @@ if __name__ == "__main__":
             action, _ = model.predict(obs)
             obs, reward, done, info = env.step(action)
             total_reward += reward[0]  # DummyVecEnv 返回的是批量（长度为1）
-
-            # 可视化仿真过程（需 GUI 支持）
             env.render()
             time.sleep(0.02)  # 减慢播放速度便于观看
 

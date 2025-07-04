@@ -79,7 +79,7 @@ class Robot:
         group,
         target=None,
         tolerance=0.01,
-        max_steps=3000
+        max_steps=1000
     ):
         idxs = self.groups[group]
         #初始化
@@ -116,7 +116,6 @@ class Robot:
             
             mujoco.mj_step(self.model, self.data)
             self.viewer.sync()  
-            # self.stay(1000)
             
             steps+=1   
         return reached_target,max(deltas)
@@ -141,24 +140,27 @@ class Robot:
         joint_angles = joint_angles[1:-2]  # Remove fixed/base links
 
         if error < 0.02:
-            # print("IK OK")
             return joint_angles
         else:
-            # print("IK error too high:", error)
+            print("IK error too high:", error, ee_position)
             return None
 
             
         
 
 
-    def move_ee(self,ee_position,pid=True):
-        joint_angles = self._ik(ee_position) 
+    def move_ee(self, ee_position, pid=True):
+        joint_angles = self._ik(ee_position)
+        if joint_angles is None:
+            return
+        
         if pid:
             self._move_group_to_joint_target(group="Arm", target=joint_angles)
         else:
             self.data.qpos[:5] = joint_angles
             mujoco.mj_forward(self.model, self.data)
             self.viewer.sync()
+
     
     def stay(self,duration):
         starting_time = time.time()
@@ -172,35 +174,22 @@ class Robot:
         coordinates_1 = copy.deepcopy(coordinates)
         coordinates_1[2] = 1.1
         self.move_ee(coordinates_1)
-        print("result1")
         self.stay(300)
-        # result_rotate = self.rotate_wrist_3_joint_to_value(self.rotations[rotation])
         self.open_gripper()
-        # Move to grasping height
-        print("result2")
         self.stay(300)
         coordinates_2 = copy.deepcopy(coordinates)
         coordinates_2[2] = max(TABLE_HEIGHT, coordinates_2[2])
-        print("coordinates_2",coordinates_2)
         self.move_ee(coordinates_2)
-        print("result3")
         self.stay(300)
-        
         result_grasp = self.close_gripper()
-        print("result4")
         self.stay(300)
         # Move back above center of table
         self.move_ee([0.0, -0.6, 1.1])
-        print("result5")
         self.stay(300)
         # Move to drop position
         self.move_ee([0.6, 0.0, 1.1])
-        
-        print("result6")
         self.stay(300)
         # Open gripper again
         self.open_gripper()
-        print("result7")
-        
         self.stay(300)
         return result_grasp
